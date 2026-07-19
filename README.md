@@ -1,329 +1,1059 @@
-# Videoflix - Docker Setup
+# Videoflix Backend
 
-Dies ist ein Docker Setup, dass dir die Entwicklung und uns die Abnahme des Videoflix Projektes erleichtern soll.
+Videoflix is a Django REST Framework backend for an authenticated video-streaming platform.
 
-Vor der Verwendung schaue dir bitte die einführenden Videos unter:
+The application provides user registration, account activation, JWT authentication through HttpOnly cookies, password reset functionality, background video processing and adaptive HLS video streaming.
 
-[Link zu Videos](https://developer-akademie.teachable.com/courses/enrolled/1656501)
+This repository contains the **backend only**. The provided Videoflix frontend is maintained and deployed separately and communicates with this backend through a REST API.
 
-dazu an.
-
-## Table of Contents
-
-<!-- TOC -->
-
-- [Videoflix - Docker Setup](#videoflix---docker-setup)
-  - [Table of Contents](#table-of-contents)
-  - [Voraussetzungen](#voraussetzungen)
-  - [Quickstart](#quickstart)
-    - [Aufsetzen und Einrichtung des Projekts](#aufsetzen-und-einrichtung-des-projekts)
-      - [Anpassen der settings.py Datei](#anpassen-der-settingspy-datei)
-  - [Usage](#usage)
-    - [Environment Variablen](#environment-variablen)
-    - [Migrations im Docker Container](#migrations-im-docker-container)
-    - [requirements.txt](#requirementstxt)
-  - [Troubleshooting](#troubleshooting)
-
-<!-- /TOC -->
+> Developed as part of the Developer Akademie GmbH advanced training program.
 
 ---
 
-## Voraussetzungen
+## Table of Contents
 
-- **Docker** mit **docker-compose** installiert.
+- [Project Overview](#project-overview)
+- [Implemented Features](#implemented-features)
+- [Technology Stack](#technology-stack)
+- [Application Architecture](#application-architecture)
+- [Video Processing](#video-processing)
+- [API Endpoints](#api-endpoints)
+  - [Authentication](#authentication)
+  - [Videos](#videos)
+  - [Django Administration](#django-administration)
+- [Project Structure](#project-structure)
+- [Prerequisites](#prerequisites)
+- [Quickstart](#quickstart)
+  - [1. Create the Environment File](#1-create-the-environment-file)
+  - [2. Build and Start the Project](#2-build-and-start-the-project)
+  - [3. Open the Backend](#3-open-the-backend)
+- [Uploading and Processing Videos](#uploading-and-processing-videos)
+- [Useful Docker Commands](#useful-docker-commands)
+- [Environment Variables](#environment-variables)
+- [Database Migrations](#database-migrations)
+- [Dependencies](#dependencies)
+- [Original Docker Setup Reference](#original-docker-setup-reference)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
 
-    Siehe [Anleitung](https://docs.docker.com/compose/install/) zur Installation.
+---
 
-    Erforderlich für den Start des Projekts, da es vollständig containerisiert ist.
+## Project Overview
 
-- **git** ist installiert.
+The Videoflix backend handles authentication, video administration, background processing and video delivery.
 
-    Siehe [Anleitung](https://git-scm.com/downloads) zur Installation.
+Registered users must activate their accounts through an activation link before they can log in. Authentication is implemented with JSON Web Tokens stored in secure HttpOnly cookies.
 
-    Erforderlich, um das Projekt herunterzuladen.
+Videos are uploaded through the Django administration interface. After a new video has been saved, a Django RQ background task automatically starts the FFmpeg processing pipeline.
+
+The generated video files are delivered as HTTP Live Streaming resources.
+
+---
+
+## Implemented Features
+
+### User Management
+
+- Registration with email address and password
+- Password confirmation validation
+- Prevention of duplicate accounts
+- Inactive user creation before email activation
+- Account activation through a UID and token
+- Secure login responses with generic error messages
+- JWT access and refresh tokens
+- Authentication through HttpOnly cookies
+- Refresh token rotation
+- Refresh token blacklisting during logout
+- Password reset request
+- Password reset confirmation
+- Generic password-reset responses to prevent account enumeration
+
+### Video Management
+
+- Video model with title, description, source video and thumbnail
+- Video administration through the Django admin panel
+- Automatic background processing after upload
+- Automatic thumbnail generation
+- Automatic HLS conversion
+- Supported HLS resolutions:
+  - 480p
+  - 720p
+  - 1080p
+- HLS manifest delivery
+- HLS segment delivery
+- Validation of supported resolutions
+- Validation of HLS segment filenames
+- Authenticated access to video resources
+- HTTP 404 responses for unavailable video files
+
+### Performance
+
+- Redis as caching layer
+- Cached video list
+- Automatic cache invalidation after video creation, modification or deletion
+- Django RQ for background processing
+- PostgreSQL instead of SQLite
+- Gunicorn as application server
+- WhiteNoise for static files
+
+---
+
+## Technology Stack
+
+| Technology | Purpose |
+| :--- | :--- |
+| Python | Backend programming language |
+| Django | Web framework and administration |
+| Django REST Framework | REST API implementation |
+| Simple JWT | JWT authentication and token blacklisting |
+| PostgreSQL | Relational database |
+| Redis | Cache and RQ message broker |
+| Django RQ | Background task processing |
+| FFmpeg | Thumbnail and HLS generation |
+| Gunicorn | WSGI application server |
+| WhiteNoise | Static-file delivery |
+| Docker | Containerized development and project evaluation |
+| Docker Compose | Multi-container orchestration |
+
+FFmpeg is installed inside the backend Docker image. A separate global FFmpeg installation on the host computer is therefore not required when the project is started through Docker.
+
+---
+
+## Application Architecture
+
+The backend is divided into separate Django applications and layers.
+
+### `auth_app`
+
+Responsible for:
+
+- User registration
+- Account activation
+- Login
+- JWT cookie handling
+- Token refresh
+- Logout
+- Password reset
+- Authentication services
+
+### `video_app`
+
+Responsible for:
+
+- Video model
+- Video administration
+- Video serialization
+- Video API endpoints
+- Redis caching
+- RQ task creation
+- FFmpeg processing
+- HLS manifests and segments
+
+### Layer Responsibilities
+
+- `api/views.py` handles requests and responses.
+- `api/serializers.py` validates and serializes API data.
+- `services.py` contains application logic.
+- `selectors.py` contains database queries and cached read operations.
+- `tasks.py` contains background-processing tasks.
+- `utils.py` contains filesystem and FFmpeg helpers.
+- `signals.py` reacts to video model changes.
+- `authentication.py` handles JWT authentication through cookies.
+
+---
+
+## Video Processing
+
+The processing workflow starts automatically after a video has been uploaded through the Django admin panel.
+
+```text
+Video upload
+    |
+    v
+Video model is saved
+    |
+    v
+Django post_save signal
+    |
+    v
+RQ task is added after the database transaction is committed
+    |
+    v
+Django RQ worker starts processing
+    |
+    +--> Thumbnail is generated
+    |
+    +--> 480p HLS version is generated
+    |
+    +--> 720p HLS version is generated
+    |
+    +--> 1080p HLS version is generated
+```
+
+The generated media structure follows this pattern:
+
+```text
+media/
+└── videos/
+    ├── originals/
+    ├── thumbnails/
+    │   └── <video_id>.jpg
+    └── hls/
+        └── <video_id>/
+            ├── 480p/
+            │   ├── index.m3u8
+            │   ├── segment_000.ts
+            │   └── ...
+            ├── 720p/
+            │   ├── index.m3u8
+            │   ├── segment_000.ts
+            │   └── ...
+            └── 1080p/
+                ├── index.m3u8
+                ├── segment_000.ts
+                └── ...
+```
+
+---
+
+## API Endpoints
+
+The backend is available locally at:
+
+```text
+http://localhost:8000
+```
+
+### Authentication
+
+#### Register User
+
+```http
+POST /api/register/
+```
+
+Creates an inactive user and sends an account-activation email.
+
+Example request:
+
+```json
+{
+    "email": "user@example.com",
+    "password": "SecurePassword123!",
+    "confirmed_password": "SecurePassword123!"
+}
+```
+
+---
+
+#### Activate Account
+
+```http
+GET /api/activate/<uidb64>/<token>/
+```
+
+Activates a previously registered account.
+
+---
+
+#### Login
+
+```http
+POST /api/login/
+```
+
+Authenticates an active user and stores JWT tokens in HttpOnly cookies.
+
+Example request:
+
+```json
+{
+    "email": "user@example.com",
+    "password": "SecurePassword123!"
+}
+```
+
+---
+
+#### Refresh Access Token
+
+```http
+POST /api/token/refresh/
+```
+
+Creates a new access token by using the refresh token stored in the HttpOnly cookie.
+
+---
+
+#### Logout
+
+```http
+POST /api/logout/
+```
+
+Blacklists the refresh token and removes the authentication cookies.
+
+---
+
+#### Request Password Reset
+
+```http
+POST /api/password_reset/
+```
+
+Example request:
+
+```json
+{
+    "email": "user@example.com"
+}
+```
+
+The response remains generic regardless of whether the email address exists.
+
+---
+
+#### Confirm Password Reset
+
+```http
+POST /api/password_confirm/<uidb64>/<token>/
+```
+
+Example request:
+
+```json
+{
+    "new_password": "NewSecurePassword123!",
+    "confirmed_password": "NewSecurePassword123!"
+}
+```
+
+---
+
+### Videos
+
+All video endpoints require authentication.
+
+#### Video List
+
+```http
+GET /api/video/
+```
+
+Returns the available videos ordered by creation date.
+
+The result is cached in Redis for improved performance.
+
+---
+
+#### HLS Manifest
+
+```http
+GET /api/video/<movie_id>/<resolution>/index.m3u8
+```
+
+Example:
+
+```http
+GET /api/video/1/720p/index.m3u8
+```
+
+Supported resolutions:
+
+```text
+480p
+720p
+1080p
+```
+
+---
+
+#### HLS Segment
+
+```http
+GET /api/video/<movie_id>/<resolution>/<segment>/
+```
+
+Example:
+
+```http
+GET /api/video/1/720p/segment_000.ts
+```
+
+Only segment filenames matching the expected format are accepted.
+
+---
+
+### Django Administration
+
+```http
+GET /admin/
+```
+
+The administration interface can be used to:
+
+- Create videos
+- Edit video metadata
+- Delete videos
+- View generated thumbnail information
+- Manage users
+
+The Docker entrypoint automatically creates a superuser from the configured environment variables when the account does not already exist.
+
+---
+
+## Project Structure
+
+```text
+.
+├── auth_app/
+│   ├── api/
+│   │   ├── serializers.py
+│   │   ├── urls.py
+│   │   └── views.py
+│   ├── authentication.py
+│   ├── services.py
+│   ├── tokens.py
+│   ├── urls.py
+│   └── utils.py
+├── video_app/
+│   ├── api/
+│   │   ├── serializers.py
+│   │   ├── urls.py
+│   │   └── views.py
+│   ├── admin.py
+│   ├── apps.py
+│   ├── models.py
+│   ├── selectors.py
+│   ├── services.py
+│   ├── signals.py
+│   ├── tasks.py
+│   └── utils.py
+├── core/
+│   ├── settings.py
+│   ├── urls.py
+│   └── wsgi.py
+├── backend.Dockerfile
+├── backend.entrypoint.sh
+├── docker-compose.yml
+├── manage.py
+├── requirements.txt
+├── .env.template
+└── README.md
+```
+
+---
+
+## Prerequisites
+
+The following software must be installed:
+
+- **Docker Desktop**
+- **Docker Compose**
+- **Git**
+
+Docker installation:
+
+[Docker Compose installation documentation](https://docs.docker.com/compose/install/)
+
+Git installation:
+
+[Git download page](https://git-scm.com/downloads)
+
+The project is fully containerized. Python, PostgreSQL, Redis, Gunicorn, Django RQ and FFmpeg are provided through Docker.
 
 ---
 
 ## Quickstart
 
 > [!CAUTION]
-> <span style="color: red;">Bitte halte dich genau an die hier beschriebene Anleitung. Wenn du die grundlegene
-Konfiguration veränderst, kann das Projekt unter Umständen nicht gestartet werden.</span>
+> Keep the provided Docker configuration unchanged.
 >
-> <span style="color: red;">Du kannst Variablen in der `.env` Datei verändern oder neue hinzufügen. Bitte lösche keine
-der vorhandenen Variablen.</span>
+> Do not modify the fundamental configuration of:
 >
-> <span style="color: red;">Bitte ändere nichts, an den im weiteren Verlauf, angegebenen Einträgen in der `settings.py`.</span>
+> - `backend.Dockerfile`
+> - `docker-compose.yml`
+> - `backend.entrypoint.sh`
 >
-> <span style="color: red;">Bitte nimm keine Änderungen an den Dateien `backend.Dockerfile`, `docker-compose` und `backend.entrypoint.sh` vor!<ins></span>
->
-> <span style="color: red;">Du kannst (und musst), weitere Packages installieren und auch entsprechende Änderungen an
-der `settings.py` Datei vornehmen. <ins>Achte darauf deine `requirements.txt` Datei regelmäßig zu aktualisieren.<ins></span>
+> Environment-variable values may be adjusted, but the existing variable names should not be deleted.
 
-1. **Definiere die Umgebungsvariablen, unter Benutzung der [.env.template](./.env.template) Datei**. Nutze hierzu die
-`git bash Komandozeile`.
+### 1. Create the Environment File
 
-    ```bash
-    # Erstellt eine .env-Datei mit dem Inhalt von .env.template
-    cp .env.template .env
-    ```
+Create a `.env` file from `.env.template`.
 
-    > [!IMPORTANT]
-    > Stelle sicher, dass die Platzhalterwerte gegebenenfalls durch tatsächliche, für deine Umgebung spezifische Werte
-    ersetzt werden.
+Using Git Bash, Linux or macOS:
 
-### Aufsetzen und Einrichtung des Projekts
-
-- Virtual Environment erstellen und aktivieren
-- Django installieren
-- DRF Installieren
-- django rq installieren
-- django-redis installieren
-- gunicorn installieren
-- psycopg2-binary installieren
-- python-dotenv installieren
-- whitenoise installieren
-- aktualisiere deine `requirements.txt` Datei
-- erstelle das Django Projekt im aktuellen Ordner
-    - projektname => core
-
-#### <ins>Anpassen der `settings.py` Datei
-
-Passe deine `seetings.py` Datei wie folgt an (Bitte lösche unnötige Kommentare, die dir ggf. nur Informationen zum
-Editieren liefern. Die ... geben an, dass hier weitere Zeilen stehen, diese müssen auch erhalten bleiben):
-
-```python
-# settings.py
-
-from pathlib import Path
-# zwei neue Zeilen
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-...
-
-# folgende Zeile ändern
-SECRET_KEY = os.getenv('SECRET_KEY', default='django-insecure-@#x5h3zj!g+8g1v@2^b6^9$8&f1r7g$@t3v!p4#=g0r5qzj4m3')
-
-# Zwei Zeilen hinzufügen
-ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", default="localhost").split(",")
-CSRF_TRUSTED_ORIGINS = os.environ.get("CSRF_TRUSTED_ORIGINS", default="http://localhost:4200").split(",")
-
-# Füge django-rq zu deinen Apps hinzu
-INSTALLED_APPS = [
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'django_rq', # neue Zeile
-]
-
-# Füge das whitenoise middleware hinzu
-MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware', # neue Zeile
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
-]
-
-...
-
-# Ändere die Einstellungen für die Datenbak und Füge die Konfiguration für Redis und den RQ-Worker hinzu
-
-# Ersetze die DATABASES Einstellung
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.environ.get("DB_NAME", default="videoflix_db"),
-        "USER": os.environ.get("DB_USER", default="videoflix_user"),
-        "PASSWORD": os.environ.get("DB_PASSWORD", default="supersecretpassword"),
-        "HOST": os.environ.get("DB_HOST", default="db"),
-        "PORT": os.environ.get("DB_PORT", default=5432)
-    }
-}
-
-# Füge die Konfiguration für Redis und RQ hinzu
-CACHES = {
-    "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": os.environ.get("REDIS_LOCATION", default="redis://redis:6379/1"),
-        "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient"
-        },
-        "KEY_PREFIX": "videoflix"
-    }
-}
-
-RQ_QUEUES = {
-    'default': {
-        'HOST': os.environ.get("REDIS_HOST", default="redis"),
-        'PORT': os.environ.get("REDIS_PORT", default=6379),
-        'DB': os.environ.get("REDIS_DB", default=0),
-        'DEFAULT_TIMEOUT': 900,
-        'REDIS_CLIENT_KWARGS': {},
-    },
-}
-
-...
-
-# Ändere und Erweitere die Konfiguration für static und media Dateien
-STATIC_URL = "/static/"
-STATIC_ROOT = BASE_DIR / "static"
-
-MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
-
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-
-...
-
+```bash
+cp .env.template .env
 ```
 
-1. **Build and start the project using `docker-compose`.**
+Using Windows PowerShell:
+
+```powershell
+Copy-Item .env.template .env
+```
+
+Review the generated `.env` file and replace placeholder values where required.
+
+The real `.env` file contains credentials and must not be committed to Git.
+
+---
+
+### 2. Build and Start the Project
+
+Run:
+
+```bash
+docker compose up --build
+```
+
+To run the containers in the background:
+
+```bash
+docker compose up -d --build
+```
+
+Older Docker Compose installations may require:
 
 ```bash
 docker-compose up --build
 ```
 
--> falls das nicht funktioniert, verwende (ohne "-")
-```bash
-docker compose up --build
-```
+The Docker entrypoint automatically:
 
-Open application in browser on [localhost:8000](http://localhost:8000).
+- Waits for PostgreSQL
+- Collects static files
+- Creates migrations when necessary
+- Applies database migrations
+- Creates the configured superuser when necessary
+- Starts Gunicorn
+- Starts the Django RQ worker
 
 ---
 
-## Usage
+### 3. Open the Backend
 
-### Environment Variablen
+Backend:
 
-Alle erforderlichen Umgebungsvariablen werden in der [.env](./.env) Datei gespeichert.
+```text
+http://localhost:8000
+```
+
+Django administration:
+
+```text
+http://localhost:8000/admin/
+```
+
+Django RQ administration:
+
+```text
+http://localhost:8000/django-rq/
+```
+
+---
+
+## Uploading and Processing Videos
+
+1. Start the Docker containers.
+2. Open the Django administration interface.
+3. Log in with the superuser credentials from `.env`.
+4. Open the video administration.
+5. Create a new video.
+6. Enter a title and description.
+7. Select a source video file.
+8. Save the video.
+
+After the database transaction has been committed, the video is added to the default RQ queue.
+
+The worker then generates:
+
+- One thumbnail
+- One 480p HLS version
+- One 720p HLS version
+- One 1080p HLS version
+
+Processing may take some time depending on:
+
+- Video duration
+- Source resolution
+- File size
+- Available CPU performance
+
+RQ worker activity can be inspected with:
+
+```bash
+docker compose logs -f web
+```
+
+Generated files are stored below:
+
+```text
+media/videos/
+```
+
+---
+
+## Useful Docker Commands
+
+### Show Running Containers
+
+```bash
+docker compose ps
+```
+
+### Follow Backend Logs
+
+```bash
+docker compose logs -f web
+```
+
+### Show Recent Backend Logs
+
+```bash
+docker compose logs --tail=250 web
+```
+
+### Run the Django System Check
+
+```bash
+docker compose exec web python manage.py check
+```
+
+### Open a Shell in the Backend Container
+
+```bash
+docker compose exec web sh
+```
+
+### Stop the Containers
+
+```bash
+docker compose down
+```
+
+### Rebuild the Containers
+
+```bash
+docker compose up -d --build
+```
+
+### Restart the Backend Service
+
+```bash
+docker compose restart web
+```
+
+---
+
+## Environment Variables
+
+All required environment variables are stored in the local `.env` file.
 
 > [!IMPORTANT]
-> Bitte verändere die Namen der Variablen in dieser Konfiguration nicht. Dies kann unter Umständen dazu führen, dass wir
-das Projekt nicht prüfen und abnehmen können.
+> Do not rename or delete the existing variables from the supplied configuration.
 >
-> Ändere bereits vorhandene Variablen gegebenenfalls mit sinnvollen Werten
+> Use secure values and never publish the real `.env` file.
+
+The `backend.entrypoint.sh` script creates a superuser based on:
+
+- `DJANGO_SUPERUSER_USERNAME`
+- `DJANGO_SUPERUSER_PASSWORD`
+- `DJANGO_SUPERUSER_EMAIL`
+
+| Name | Type | Description | Default | Mandatory |
+| :--- | :---: | :--- | :--- | :---: |
+| `DJANGO_SUPERUSER_USERNAME` | str | Username for the automatically created Django administrator | `admin` | |
+| `DJANGO_SUPERUSER_PASSWORD` | str | Password for the Django administrator | `adminpassword` | |
+| `DJANGO_SUPERUSER_EMAIL` | str | Email address of the Django administrator | `admin@example.com` | |
+| `SECRET_KEY` | str | Secret cryptographic Django key | | Yes |
+| `DEBUG` | bool | Enables or disables Django debug mode | `True` | |
+| `ALLOWED_HOSTS` | List[str] | Hosts and domains accepted by Django | `localhost` | |
+| `CSRF_TRUSTED_ORIGINS` | List[str] | Trusted frontend origins for CSRF protection | `http://localhost:4200` | |
+| `DB_NAME` | str | PostgreSQL database name | `your_database_name` | Yes |
+| `DB_USER` | str | PostgreSQL database user | `your_database_user` | Yes |
+| `DB_PASSWORD` | str | PostgreSQL database password | `your_database_password` | Yes |
+| `DB_HOST` | str | PostgreSQL host or Docker service name | `db` | |
+| `DB_PORT` | int | PostgreSQL port | `5432` | |
+| `REDIS_LOCATION` | str | Redis cache connection URL | `redis://redis:6379/1` | |
+| `REDIS_HOST` | str | Redis host or Docker service name | `redis` | |
+| `REDIS_PORT` | int | Redis port | `6379` | |
+| `REDIS_DB` | int | Redis database used by RQ | `0` | |
+| `EMAIL_HOST` | str | SMTP server address | `smtp.example.com` | Yes |
+| `EMAIL_PORT` | int | SMTP server port | `587` | |
+| `EMAIL_USE_TLS` | bool | Enables TLS for email delivery | `True` | |
+| `EMAIL_USE_SSL` | bool | Enables SSL for email delivery | `False` | |
+| `EMAIL_HOST_USER` | str | SMTP account username | `your_email_user` | Yes |
+| `EMAIL_HOST_PASSWORD` | str | SMTP account password | `your_email_password` | Yes |
+| `DEFAULT_FROM_EMAIL` | str | Sender address used by Django | `EMAIL_HOST_USER` | |
 
 ---
 
-> [!NOTE]
-> [backend.entrypoint.sh](backend.entrypoint.sh) erstellt automatisch einen Superuser basierend auf den
-Umgebungsvariablen **`DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_PASSWORD` und `DJANGO_SUPERUSER_EMAIL`**
+## Database Migrations
 
-| Name | Type | Description | Default | Mandatory |
-| :--- | :---: | :---------- | :----- | :---: |
-| **DJANGO_SUPERUSER_USERNAME** | str | Benutzername für das Django-Admin-Superuser-Konto. Dieser Benutzer wird automatisch erstellt wenn er nicht existiert. | `admin` |   |
-| **DJANGO_SUPERUSER_PASSWORD** | str |  Passwort für das Django-Admin-Superuser-Konto. Achte darauf, dass es sicher ist. | `adminpassword` |   |
-| **DJANGO_SUPERUSER_EMAIL** | str |  E-Mail-Adresse für das Django-Admin-Superuser-Konto. Wird für die Wiederherstellung des Kontos und für Benachrichtigungen verwendet. | `admin@example.com` |   |
-| **SECRET_KEY** | str | Ein geheimer Schlüssel für die Kryptografie in Django. Dieser sollte eine lange, zufällige Zeichenfolge sein und vertraulich behandelt werden. |   | x |
-| **DEBUG** | bool | Aktiviert oder deaktiviert den Debug-Modus. Sollte in der Produktion auf False gesetzt werden, um die Offenlegung sensibler Informationen zu verhindern. | `True` |   |
-| **ALLOWED_HOSTS** | List[str] | Eine Liste von Strings, die die Host-/Domainnamen darstellen, die diese Django-Site bedienen kann. Wichtig für die Sicherheit. | `[localhost]` |   |
-| **CSRF_TRUSTED_ORIGINS** | List[str] | Cors-Headers allowed origins. | `[http://localhost:4200]` |   |
-| **DB_NAME** | str | Name der PostgreSQL-Datenbank, zu der eine Verbindung hergestellt werden soll. Wichtig für Datenbankoperationen. | `your_database_name` | x |
-| **DB_USER** | str | Benutzername für die Authentifizierung bei der PostgreSQL-Datenbank. | `your_database_user` | x |
-| **DB_PASSWORD** | str | Passwort für den PostgreSQL-Datenbankbenutzer. | `your_database_password` | x |
-| **DB_HOST** | str | Host-Adresse der PostgreSQL-Datenbank. Normalerweise localhost oder der Dienstname in Docker. | `db` |   |
-| **DB_PORT** | int | Portnummer für die Verbindung zur PostgreSQL-Datenbank. | `5432` |   |
-| **REDIS_LOCATION** | str | Redis location | `redis://redis:6379/1` |   |
-| **REDIS_HOST** | str | Redis host | `redis` |   |
-| **REDIS_PORT** | int | Redis port | `6379` |   |
-| **REDIS_DB** | int | Redis DB | `0` |   |
-| **EMAIL_HOST** | str | SMTP-Server-Adresse für den Versand von E-Mails. | `smtp.example.com` | x |
-| **EMAIL_PORT** | int | Portnummer für den SMTP-Server. | `587` |   |
-| **EMAIL_USE_TLS** | bool | Aktiviert TLS für den E-Mail-Versand. Empfohlen für die Sicherheit. | `True` |   |
-| **EMAIL_USE_SSL** | bool | E-Mail verwendet SSL | `False` |   |
-| **EMAIL_HOST_USER** | str | Benutzername für das E-Mail-Konto, das zum Senden von E-Mails verwendet wird. | `your_email_user` | x |
-| **EMAIL_HOST_PASSWORD** | str | Passwort für das E-Mail-Konto. Achte auf die Sicherheit. | `your_email_password` | x |
-| **DEFAULT_FROM_EMAIL** | str | E-Mailadresse die von Django verwendet wird | `EMAIL_HOST_USER` |   |
-
-### Migrations im Docker Container
-
-Um gemachte Änderungen an der Datenbankstruktur an Docker zu übertragen hast du zwei verschiedene Möglichkeiten:
-
-1. Docker Container komplett neu erstellen (nicht empfohlen)
-
-    - stoppe Docker in der Kommandozeile mit der Tastenkombination `Strg+C`
-    - starte Docker neu mit dem Befehl `docker-compose up --build`
-    - falls `docker-compose up --build` nicht funktioniert, verwende `docker compose up --build`
-
-2. Führe die Migration direkt im Docker Container aus (besser)
-
-    - erstelle die migrations Dateien direkt im Docker Container
-
-    ```bash
-    docker-compose exec web python manage.py makemigrations
-    ```
-
-    Dieser Befehl wird direk in der Bash des Docker Containers ausgeführt. (Wir erinnern uns, unser Docker Setup
-    enthält im Prinzip ein komplettes Betriebssystem)
-
-    - Führe die Migration aus:
-
-    ```bash
-    docker-compose exec web python manage.py migrate
-    ```
-
-### requirements.txt
-
-Die Dependencies der Anwendung sind in der Datei [requirements.txt](./requirements.txt) aufgeführt.
-
-Um sie in den Docker Container zu ändern, muss die Anwendung neu erstellt werden.
-
-Um nur die primären (Top-Level) Pakete aufzulisten, die du über `pip` installiert hast - ohne ihre Abhängigkeiten
-anzuzeigen - verwende:
+### Create Migrations
 
 ```bash
-pip list --not-required
+docker compose exec web python manage.py makemigrations
 ```
+
+### Apply Migrations
+
+```bash
+docker compose exec web python manage.py migrate
+```
+
+The supplied Docker entrypoint also applies migrations automatically when the backend container starts.
+
+Migration files must remain part of the Git repository so that the project database can be reproduced on another computer.
+
+---
+
+## Dependencies
+
+The Python dependencies are listed in:
+
+```text
+requirements.txt
+```
+
+When a dependency is added or changed, rebuild the backend image:
+
+```bash
+docker compose up -d --build
+```
+
+To inspect installed top-level packages inside the container:
+
+```bash
+docker compose exec web pip list --not-required
+```
+
+---
+
+## Original Docker Setup Reference
+
+The supplied Docker setup was provided to simplify local development and project evaluation.
+
+> [!CAUTION]
+> Follow the supplied Docker instructions carefully.
+>
+> Changing the fundamental configuration may prevent the project from starting.
+>
+> Existing variables in `.env.template` must not be deleted.
+>
+> Do not modify:
+>
+> - `backend.Dockerfile`
+> - `docker-compose.yml`
+> - `backend.entrypoint.sh`
+>
+> Additional Python packages may be installed when required. Update `requirements.txt` whenever a runtime dependency is added.
+
+### Original Settings Reference
+
+The project uses environment-based Django configuration.
+
+Example imports:
+
+```python
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+load_dotenv()
+```
+
+Environment-based security configuration:
+
+```python
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALLOWED_HOSTS = os.environ.get(
+    "ALLOWED_HOSTS",
+    default="localhost",
+).split(",")
+
+CSRF_TRUSTED_ORIGINS = os.environ.get(
+    "CSRF_TRUSTED_ORIGINS",
+    default="http://localhost:4200",
+).split(",")
+```
+
+Installed Django RQ application:
+
+```python
+INSTALLED_APPS = [
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "django_rq",
+]
+```
+
+WhiteNoise middleware:
+
+```python
+MIDDLEWARE = [
+    "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+]
+```
+
+PostgreSQL configuration:
+
+```python
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.environ.get(
+            "DB_NAME",
+            default="videoflix_db",
+        ),
+        "USER": os.environ.get(
+            "DB_USER",
+            default="videoflix_user",
+        ),
+        "PASSWORD": os.environ.get(
+            "DB_PASSWORD",
+            default="supersecretpassword",
+        ),
+        "HOST": os.environ.get(
+            "DB_HOST",
+            default="db",
+        ),
+        "PORT": os.environ.get(
+            "DB_PORT",
+            default=5432,
+        ),
+    }
+}
+```
+
+Redis cache configuration:
+
+```python
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": os.environ.get(
+            "REDIS_LOCATION",
+            default="redis://redis:6379/1",
+        ),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        },
+        "KEY_PREFIX": "videoflix",
+    }
+}
+```
+
+Django RQ configuration:
+
+```python
+RQ_QUEUES = {
+    "default": {
+        "HOST": os.environ.get(
+            "REDIS_HOST",
+            default="redis",
+        ),
+        "PORT": os.environ.get(
+            "REDIS_PORT",
+            default=6379,
+        ),
+        "DB": os.environ.get(
+            "REDIS_DB",
+            default=0,
+        ),
+        "DEFAULT_TIMEOUT": 900,
+        "REDIS_CLIENT_KWARGS": {},
+    },
+}
+```
+
+Static and media configuration:
+
+```python
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "static"
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+```
+
+---
 
 ## Troubleshooting
 
-- **Beim Starten von Docker erhalte ich in der Komandozeile diesen Fehler:**
+### Docker Cannot Connect to Docker Desktop
 
-    ```bash
-    unable to get image 'postgres:latest': error during connect:
-    Get "http://%2F%2F.%2Fpipe%2FdockerDesktopLinuxEngine/v1.48/images/postgres:latest/json":
-    open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.
-    ```
+Example error:
 
-    > [!NOTE]
-    > Bitte stelle sicher, dass du Docker Desktop gestartet hast.
+```text
+unable to get image 'postgres:latest': error during connect:
+open //./pipe/dockerDesktopLinuxEngine:
+The system cannot find the file specified.
+```
 
-- **Das Starten von Docker bricht mit der folgenden Meldung in der Konsole ab:**
+Solution:
 
-    ```bash
-    videoflix_backend   | exec ./backend.entrypoint.sh: no such file or directory
-    videoflix_backend exited with code 255
-    ```
+Make sure Docker Desktop is running before starting the project.
 
-    > [!NOTE]
-    > Bitte stelle sicher, dass die Datei `backend.entrypoint.sh` mit der End of Line Sequence LF abgespeichert ist.
-    >
-    > Siehe [Google Suche](https://www.google.com/search?sca_esv=81208bf63503b115&rlz=1C1CHBF_deDE1069DE1069&q=cr+lf+lf+in+vscode&spell=1&sa=X&ved=2ahUKEwihofbto4eNAxXK9bsIHXhtCLYQBSgAegQIDxAB&biw=1920&bih=911&dpr=1)
-
-- **Beim Starten des Docker Containern erhältst du nach einer Änderung der Datenbank eine Fehlermeldung, dass die
-Migration der Datenbank fehlschlägt.**
-
-    > [!NOTE]
-    > Dies kann passieren, wenn du Änderungen an einem Model vornimmst. Um trotzdem eine Migration durchführen zu können
-    kannst do folgenden Befehl verwenden:
-    >
-    > ```bash
-    > # docker run --rm [OPTIONEN] <DEIN_IMAGE_NAME> <DEIN_MIGRATIONSBEFEHL>
-    > docker run --rm web python manage.py makemigrations
-    >
-    > # oftmals reicht dieser Befehl bereits aus um beim nächsten start das Problem zu umgehen.
-    > # Zur Sicherheit kannst du aber auch direkt im Anschluss die eigentliche Migration durchführen.
-    > docker run --rm web python manage.py migrate
-    > ```
-    >
 ---
+
+### Entrypoint File Cannot Be Found
+
+Example error:
+
+```text
+videoflix_backend | exec ./backend.entrypoint.sh:
+no such file or directory
+```
+
+Solution:
+
+Ensure that `backend.entrypoint.sh` uses the Unix line-ending format:
+
+```text
+LF
+```
+
+In Visual Studio Code, the current line-ending format is displayed in the bottom-right corner.
+
+Do not save the entrypoint file with Windows `CRLF` line endings.
+
+---
+
+### Database Migration Fails During Container Startup
+
+Create migrations manually:
+
+```bash
+docker compose run --rm web python manage.py makemigrations
+```
+
+Apply them manually:
+
+```bash
+docker compose run --rm web python manage.py migrate
+```
+
+Afterwards, rebuild and start the project:
+
+```bash
+docker compose up -d --build
+```
+
+---
+
+### Video Processing Does Not Start
+
+Inspect the backend and worker logs:
+
+```bash
+docker compose logs -f web
+```
+
+Check whether:
+
+- PostgreSQL is ready
+- Redis is running
+- The RQ worker is listening on the default queue
+- The video file exists
+- FFmpeg reports an encoding error
+- The video was created as a new database entry
+
+---
+
+### HLS Manifest Returns HTTP 404
+
+Check whether the processing task has completed.
+
+The expected path is:
+
+```text
+media/videos/hls/<video_id>/<resolution>/index.m3u8
+```
+
+Supported resolution values are:
+
+```text
+480p
+720p
+1080p
+```
+
+---
+
+### HLS Segment Returns HTTP 404
+
+The segment name must match this format:
+
+```text
+segment_000.ts
+```
+
+Examples of valid names:
+
+```text
+segment_000.ts
+segment_001.ts
+segment_002.ts
+```
+
+---
+
+### Authentication Returns HTTP 401
+
+Check whether:
+
+- The account has been activated
+- Login was successful
+- The client accepts and sends cookies
+- The access token has expired
+- The refresh endpoint has been called when required
+
+---
+
+### Static Files Are Missing
+
+Run:
+
+```bash
+docker compose exec web python manage.py collectstatic --noinput
+```
+
+Then restart the backend:
+
+```bash
+docker compose restart web
+```
+
+---
+
+## License
+
+This project was developed for educational purposes as part of the Developer Akademie GmbH advanced training program.
+
+The components supplied by Developer Akademie GmbH are subject to the included **Developer Akademie Learning License (Non-commercial)**.
+
+The project may be presented for non-commercial portfolio, application and reference purposes in accordance with the conditions contained in the `LICENSE.md` file.
+
+Do not publish:
+
+- Real credentials
+- The local `.env` file
+- Personal user data
+- Private email passwords
+- Production secrets
+- Unlicensed video material
