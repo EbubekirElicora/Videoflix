@@ -24,7 +24,7 @@ SECRET_KEY = os.getenv(
     default="django-insecure-@#x5h3zj!g+8g1v@2^b6^9$8&f1r7g$@t3v!p4#=g0r5qzj4m3",
 )
 
-DEBUG = True
+DEBUG = os.environ.get("DEBUG", default="True") == "True"
 
 ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", default="localhost").split(",")
 CSRF_TRUSTED_ORIGINS = os.environ.get(
@@ -92,8 +92,13 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,
 }
 
-AUTH_COOKIE_SECURE = False
-AUTH_COOKIE_SAMESITE = "Lax"
+AUTH_COOKIE_SECURE = (
+    os.environ.get("AUTH_COOKIE_SECURE", default="False") == "True"
+)
+AUTH_COOKIE_SAMESITE = os.environ.get(
+    "AUTH_COOKIE_SAMESITE",
+    default="Lax",
+)
 
 AUTH_COOKIE_ACCESS_MAX_AGE = int(SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds())
 AUTH_COOKIE_REFRESH_MAX_AGE = int(SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds())
@@ -186,13 +191,28 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5500",
-    "http://127.0.0.1:5500",
-    "http://localhost:5501",
-    "http://127.0.0.1:5501",
-]
+CORS_ALLOWED_ORIGINS = os.environ.get(
+    "CORS_ALLOWED_ORIGINS",
+    default=(
+        "http://localhost:5500,http://127.0.0.1:5500,"
+        "http://localhost:5501,http://127.0.0.1:5501"
+    ),
+).split(",")
 
 CORS_ALLOW_CREDENTIALS = True
+
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SECURE_SSL_REDIRECT = (
+    os.environ.get("SECURE_SSL_REDIRECT", default="False") == "True"
+)
+SECURE_HSTS_SECONDS = int(
+    os.environ.get("SECURE_HSTS_SECONDS", default="0")
+)
+SESSION_COOKIE_SECURE = (
+    os.environ.get("SESSION_COOKIE_SECURE", default="False") == "True"
+)
+CSRF_COOKIE_SECURE = (
+    os.environ.get("CSRF_COOKIE_SECURE", default="False") == "True"
+)
 
 PASSWORD_RESET_TIMEOUT = 60 * 60 * 24
