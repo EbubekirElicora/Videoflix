@@ -23,7 +23,7 @@ htmlcov/
 
 # Django generated files
 media/
-static/
+/static/
 staticfiles/
 *.sqlite3
 *.log

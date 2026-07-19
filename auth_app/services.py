@@ -1,13 +1,12 @@
-from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.tokens import default_token_generator
-from django.core.mail import send_mail
 from django.db import transaction
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from auth_app.email_service import send_html_email
 from auth_app.utils import (
     account_activation_token,
     build_activation_link,
@@ -27,9 +26,8 @@ def create_inactive_user(validated_data):
     return user
 
 
-def build_activation_email_message(user):
-    """Build the message containing the user's activation link."""
-    activation_link = build_activation_link(user)
+def build_activation_email_message(activation_link):
+    """Build the plain-text fallback for the activation email."""
     return (
         "Welcome to Videoflix!\n\n"
         "Please activate your account using the following link:\n"
@@ -38,13 +36,14 @@ def build_activation_email_message(user):
 
 
 def send_activation_email(user):
-    """Send the account-activation email to the registered user."""
-    send_mail(
+    """Send a multipart account-activation email."""
+    activation_link = build_activation_link(user)
+    send_html_email(
         subject="Activate your Videoflix account",
-        message=build_activation_email_message(user),
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[user.email],
-        fail_silently=False,
+        template_name="auth_app/emails/activation_email.html",
+        context={"activation_link": activation_link},
+        text_body=build_activation_email_message(activation_link),
+        recipient=user.email,
     )
 
 
@@ -114,9 +113,8 @@ def get_active_user_by_email(email):
     ).first()
 
 
-def build_password_reset_email_message(user):
-    """Build the message containing the user's password-reset link."""
-    reset_link = build_password_reset_link(user)
+def build_password_reset_email_message(reset_link):
+    """Build the plain-text fallback for the password-reset email."""
     return (
         "You requested a password reset for your Videoflix account.\n\n"
         "Use the following link to set a new password:\n"
@@ -125,13 +123,14 @@ def build_password_reset_email_message(user):
 
 
 def send_password_reset_email(user):
-    """Send the password-reset email to an active user."""
-    send_mail(
+    """Send a multipart password-reset email."""
+    reset_link = build_password_reset_link(user)
+    send_html_email(
         subject="Reset your Videoflix password",
-        message=build_password_reset_email_message(user),
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[user.email],
-        fail_silently=False,
+        template_name="auth_app/emails/password_reset_email.html",
+        context={"password_reset_link": reset_link},
+        text_body=build_password_reset_email_message(reset_link),
+        recipient=user.email,
     )
 
 
