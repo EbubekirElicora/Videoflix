@@ -20,7 +20,6 @@ from auth_app.services import (
     request_password_reset,
 )
 from auth_app.utils import (
-    account_activation_token,
     delete_auth_cookies,
     set_access_cookie,
     set_auth_cookies,
@@ -29,7 +28,7 @@ from auth_app.utils import (
 
 
 class RegisterView(APIView):
-    """Create an inactive user account and return an activation token."""
+    """Create an inactive user account and send an activation email."""
 
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -37,13 +36,16 @@ class RegisterView(APIView):
     def post(self, request):
         serializer = RegistrationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = register_user(serializer.validated_data)
-        token = account_activation_token.make_token(user)
-        response_data = {
-            "user": {"id": user.id, "email": user.email},
-            "token": token,
-        }
-        return Response(response_data, status=status.HTTP_201_CREATED)
+        register_user(serializer.validated_data)
+        return Response(
+            {
+                "detail": (
+                    "Registration successful. "
+                    "Please check your email to activate your account."
+                )
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class ActivateAccountView(APIView):
