@@ -17,7 +17,9 @@ HLS_VIDEO_OPTIONS = (
     "-c:v",
     "libx264",
     "-preset",
-    "medium",
+    "veryfast",
+    "-threads",
+    "2",
     "-crf",
     "23",
 )
