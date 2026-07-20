@@ -132,41 +132,23 @@ class RefreshTokenView(APIView):
 
 
 class LogoutView(APIView):
-    """Blacklist the refresh token and remove all authentication cookies."""
+    """Blacklist the refresh token when possible and clear auth cookies."""
 
     authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request):
         refresh_token = request.COOKIES.get("refresh_token")
-        if refresh_token is None:
-            return self.missing_token_response()
-        try:
-            blacklist_refresh_token(refresh_token)
-        except TokenError:
-            return self.invalid_token_response()
+        if refresh_token:
+            try:
+                blacklist_refresh_token(refresh_token)
+            except TokenError:
+                pass
         return self.success_response()
 
     @staticmethod
-    def missing_token_response():
-        return Response(
-            {"detail": "Refresh token is required."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    @staticmethod
-    def invalid_token_response():
-        return Response(
-            {"detail": "Invalid refresh token."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    @staticmethod
     def success_response():
-        detail = (
-            "Logout successful! All tokens will be deleted. "
-            "Refresh token is now invalid."
-        )
+        detail = "Logout successful. Authentication cookies were deleted."
         response = Response(
             {"detail": detail},
             status=status.HTTP_200_OK,
