@@ -7,26 +7,26 @@ from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 
 
-LOGO_PATH = "auth_app/email/videoflix_logo.svg"
+LOGO_PATH = "auth_app/email/videoflix_logo.png"
 LOGO_CONTENT_ID = "videoflix_logo"
 
 
 def build_inline_logo(logo_path):
-    """Build the inline SVG attachment for an HTML email."""
+    """Build the inline PNG attachment for an HTML email."""
     logo = MIMEPart()
     logo.set_content(
         Path(logo_path).read_bytes(),
         maintype="image",
-        subtype="svg+xml",
+        subtype="png",
         disposition="inline",
         cid=f"<{LOGO_CONTENT_ID}>",
-        filename="videoflix_logo.svg",
+        filename="videoflix_logo.png",
     )
     return logo
 
 
 def attach_logo(email):
-    """Attach the Videoflix logo when the SVG file exists."""
+    """Attach the Videoflix logo when the PNG file exists."""
     logo_path = finders.find(LOGO_PATH)
     if logo_path is None:
         return
