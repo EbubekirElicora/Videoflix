@@ -290,7 +290,6 @@ Supported resolutions:
 | Method | Endpoint | Purpose |
 | :---: | :--- | :--- |
 | GET | `/admin/` | Django administration |
-| GET | `/django-rq/` | Django RQ administration |
 
 ---
 
@@ -300,15 +299,16 @@ Supported resolutions:
 .
 ├── auth_app/
 │   ├── api/
-│   │   ├── authentication.py
 │   │   ├── serializers.py
 │   │   ├── urls.py
 │   │   └── views.py
 │   ├── migrations/
+│   ├── authentication.py
 │   ├── static/
 │   │   └── auth_app/
 │   │       └── email/
-│   │           └── videoflix_logo.svg
+│   │           ├── videoflix_logo.svg
+│   │           └── videoflix_logo.png
 │   ├── templates/
 │   │   └── auth_app/
 │   │       └── emails/
@@ -409,12 +409,6 @@ Django administration:
 http://localhost:8000/admin/
 ```
 
-Django RQ administration:
-
-```text
-http://localhost:8000/django-rq/
-```
-
 Videos can be uploaded through Django Admin. After a new video is saved, processing runs automatically in the background.
 
 ---
@@ -429,6 +423,13 @@ The local `.env` file is based on `.env.template`.
 | `DEBUG` | Enable or disable debug mode |
 | `ALLOWED_HOSTS` | Hosts accepted by Django |
 | `CSRF_TRUSTED_ORIGINS` | Trusted frontend origins |
+| `CORS_ALLOWED_ORIGINS` | Frontend origins allowed to access the API |
+| `AUTH_COOKIE_SECURE` | Send authentication cookies only through HTTPS |
+| `AUTH_COOKIE_SAMESITE` | SameSite policy for authentication cookies |
+| `SECURE_SSL_REDIRECT` | Redirect HTTP requests to HTTPS |
+| `SESSION_COOKIE_SECURE` | Send Django session cookies only through HTTPS |
+| `CSRF_COOKIE_SECURE` | Send CSRF cookies only through HTTPS |
+| `SECURE_HSTS_SECONDS` | Duration of the HTTP Strict Transport Security policy |
 | `DB_NAME` | PostgreSQL database name |
 | `DB_USER` | PostgreSQL database user |
 | `DB_PASSWORD` | PostgreSQL database password |
@@ -488,9 +489,10 @@ Stop the project:
 docker compose down
 ```
 
-Run local code-quality checks:
+Run an optional local code-quality check:
 
 ```bash
+python -m pip install ruff
 python -m ruff check .
 ```
 
