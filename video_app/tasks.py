@@ -40,10 +40,10 @@ def generate_hls_versions(video):
 def process_video(video_id):
     """Process a video in the background using a fresh DB connection."""
     close_old_connections()
-
     try:
         video = Video.objects.get(pk=video_id)
-        generate_thumbnail(video)
+        if not video.thumbnail:
+            generate_thumbnail(video)
         generate_hls_versions(video)
     finally:
         close_old_connections()
