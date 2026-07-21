@@ -20,6 +20,7 @@ This repository contains the **backend only**. The provided Videoflix frontend i
 - [API Endpoints](#api-endpoints)
 - [Project Structure](#project-structure)
 - [Quickstart](#quickstart)
+- [Environment Profiles](#environment-profiles)
 - [Environment Variables](#environment-variables)
 - [Useful Commands](#useful-commands)
 - [License](#license)
@@ -352,15 +353,66 @@ The provided frontend is not included in this repository.
 
 ## Quickstart
 
-### Prerequisites
+This guide is written for users who have no previous knowledge of this
+repository.
 
-Install:
+Follow every step in the exact order shown below.
 
+### 1. Install the Required Programs
+
+Install the following programs before continuing:
+
+- Git
 - Docker Desktop
 - Docker Compose
-- Git
+- Visual Studio Code
+- The Live Server extension for Visual Studio Code
 
-### 1. Create the Environment File
+Python, PostgreSQL, Redis and FFmpeg do not need to be installed separately.
+They are provided through Docker.
+
+Start Docker Desktop before continuing.
+
+Verify that Docker is available:
+
+```bash
+docker --version
+docker compose version
+```
+
+Both commands must display a version number.
+
+If one of the commands fails, Docker Desktop is either not installed or not
+running.
+
+### 2. Clone the Backend Repository
+
+Open Git Bash, Windows PowerShell or another terminal.
+
+Run:
+
+```bash
+git clone https://github.com/EbubekirElicora/Videoflix.git
+cd Videoflix
+```
+
+All following Docker commands must be executed from inside the cloned
+`Videoflix` directory.
+
+The supplied frontend is maintained separately and is not included in this
+backend repository.
+
+### 3. Create the Local Environment File
+
+The repository contains a file named:
+
+```text
+.env.template
+```
+
+This is an example configuration without real credentials.
+
+Create a copy named `.env`.
 
 Using Git Bash, Linux or macOS:
 
@@ -374,44 +426,600 @@ Using Windows PowerShell:
 Copy-Item .env.template .env
 ```
 
-Review the generated `.env` file and replace placeholder values where required.
+After running the command, the project directory must contain both files:
 
-> The real `.env` file contains credentials and must not be committed to Git.
+```text
+.env.template
+.env
+```
 
-### 2. Build and Start the Project
+Open the newly created `.env` file in Visual Studio Code.
+
+Important:
+
+- Edit `.env`, not `.env.template`.
+- The real `.env` file may contain passwords.
+- Never commit `.env` to GitHub.
+- Lines beginning with `#` are comments and are ignored.
+- The default values are prepared for local Docker development.
+- PostgreSQL and Redis values can remain unchanged for the first local setup.
+
+### 4. Choose the Email Delivery Method
+
+Videoflix uses emails for:
+
+- Account activation after registration
+- Password reset
+
+There are two possible email configurations.
+
+Choose exactly one option.
+
+---
+
+#### Option A: Display Emails in the Docker Logs
+
+This option is active by default.
+
+The active line in `.env` is:
+
+```env
+EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
+```
+
+With this backend:
+
+- No real email is sent.
+- Nothing arrives in an email inbox.
+- The complete activation or password-reset email is printed in the Docker
+  logs.
+- SMTP credentials are not required.
+
+Keep this line active:
+
+```env
+EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
+```
+
+Keep the SMTP backend commented out:
+
+```env
+# EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+```
+
+After registering a user, display the email with:
+
+```bash
+docker compose logs -f web
+```
+
+The logs contain:
+
+- The recipient email address
+- The email subject
+- The complete activation or password-reset link
+
+Copy the link from the logs and open it in the browser.
+
+Press:
+
+```text
+Ctrl + C
+```
+
+to stop following the logs.
+
+This does not stop the Docker containers.
+
+---
+
+#### Option B: Send Real Emails Through SMTP
+
+Choose this option when activation and password-reset emails must arrive in a
+real email inbox.
+
+Open `.env`.
+
+Comment out the console backend:
+
+```env
+# EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
+```
+
+Activate the SMTP backend:
+
+```env
+EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+```
+
+There must be exactly one active `EMAIL_BACKEND` line.
+
+Replace the example SMTP values with the values supplied by your own email
+provider:
+
+```env
+EMAIL_HOST=smtp.example.com
+EMAIL_PORT=587
+EMAIL_HOST_USER=your_email@example.com
+EMAIL_HOST_PASSWORD=your_email_password
+EMAIL_USE_TLS=True
+EMAIL_USE_SSL=False
+DEFAULT_FROM_EMAIL=your_email@example.com
+```
+
+Explanation:
+
+| Variable | Required value |
+| :--- | :--- |
+| `EMAIL_HOST` | SMTP server from the email provider |
+| `EMAIL_PORT` | Usually `587` for TLS or `465` for SSL |
+| `EMAIL_HOST_USER` | Usually the complete email address |
+| `EMAIL_HOST_PASSWORD` | Email password or app password |
+| `DEFAULT_FROM_EMAIL` | Sender address permitted by the SMTP provider |
+
+For SMTP port `587`, normally use:
+
+```env
+EMAIL_PORT=587
+EMAIL_USE_TLS=True
+EMAIL_USE_SSL=False
+```
+
+For SMTP port `465`, normally use:
+
+```env
+EMAIL_PORT=465
+EMAIL_USE_TLS=False
+EMAIL_USE_SSL=True
+```
+
+Important:
+
+- `EMAIL_USE_TLS` and `EMAIL_USE_SSL` must never both be `True`.
+- Some providers require an app password when two-factor authentication is
+  enabled.
+- In that case, use the generated app password instead of the normal account
+  password.
+- Real SMTP credentials belong only in `.env`.
+- Never place real credentials in `.env.template`, `README.md` or GitHub.
+
+### 5. Check the Frontend Port
+
+The default configuration expects the supplied frontend to run through Live
+Server on port `5500`.
+
+The active email URLs are:
+
+```env
+FRONTEND_ACTIVATION_URL=http://127.0.0.1:5500/pages/auth/activate.html
+FRONTEND_PASSWORD_RESET_URL=http://127.0.0.1:5500/pages/auth/confirm_password.html
+```
+
+The allowed local frontend origins are:
+
+```env
+CSRF_TRUSTED_ORIGINS=http://localhost:5500,http://127.0.0.1:5500,http://localhost:5501,http://127.0.0.1:5501
+CORS_ALLOWED_ORIGINS=http://localhost:5500,http://127.0.0.1:5500,http://localhost:5501,http://127.0.0.1:5501
+```
+
+When Live Server starts the frontend on port `5501`, change the email URLs to:
+
+```env
+FRONTEND_ACTIVATION_URL=http://127.0.0.1:5501/pages/auth/activate.html
+FRONTEND_PASSWORD_RESET_URL=http://127.0.0.1:5501/pages/auth/confirm_password.html
+```
+
+The port in the activation and password-reset URLs must match the actual
+frontend port.
+
+### 6. Review the PostgreSQL Configuration
+
+The default local PostgreSQL values are:
+
+```env
+DB_NAME=videoflix_db
+DB_USER=videoflix_user
+DB_PASSWORD=videoflix_local_password
+DB_HOST=db
+DB_PORT=5432
+```
+
+These values work directly with `docker-compose.yml`.
+
+Do not change:
+
+```env
+DB_HOST=db
+```
+
+to:
+
+```env
+DB_HOST=localhost
+```
+
+Inside the Docker network, `db` is the PostgreSQL service name.
+
+### 7. Review the Redis Configuration
+
+The default Redis values are:
+
+```env
+REDIS_HOST=redis
+REDIS_LOCATION=redis://redis:6379/1
+REDIS_PORT=6379
+REDIS_DB=0
+```
+
+Do not change:
+
+```env
+REDIS_HOST=redis
+```
+
+to:
+
+```env
+REDIS_HOST=localhost
+```
+
+Inside the Docker network, `redis` is the Redis service name.
+
+### 8. Build and Start the Backend
+
+Make sure Docker Desktop is running.
+
+Run this command from inside the backend repository:
 
 ```bash
 docker compose up -d --build
 ```
 
-The supplied Docker entrypoint:
+During the first startup, Docker:
 
-- Waits for PostgreSQL
+- Downloads the required images
+- Builds the Django backend image
+- Starts PostgreSQL
+- Starts Redis
+- Waits until PostgreSQL is ready
 - Collects static files
-- Creates and applies migrations
-- Creates the configured superuser when required
-- Starts Gunicorn
+- Creates and applies database migrations
+- Creates the configured Django administrator when required
 - Starts the Django RQ worker
+- Starts Gunicorn
 
-> Keep `backend.Dockerfile`, `docker-compose.yml` and `backend.entrypoint.sh` unchanged.
+The first build can take several minutes.
 
-### 3. Open the Backend
+Keep these supplied files unchanged:
 
-Backend:
+```text
+backend.Dockerfile
+docker-compose.yml
+backend.entrypoint.sh
+```
+
+### 9. Verify That the Containers Are Running
+
+Run:
+
+```bash
+docker compose ps
+```
+
+The output must show these containers as running:
+
+```text
+videoflix_backend
+videoflix_database
+videoflix_redis
+```
+
+Inspect the latest backend logs:
+
+```bash
+docker compose logs --tail=100 web
+```
+
+A successful startup should not contain:
+
+- A Python traceback
+- A PostgreSQL connection error
+- A Redis connection error
+- A missing environment-file error
+
+Run the Django system check:
+
+```bash
+docker compose exec web python manage.py check
+```
+
+Expected result:
+
+```text
+System check identified no issues
+```
+
+### 10. Open the Backend
+
+The backend is available at:
 
 ```text
 http://localhost:8000
 ```
 
-Django administration:
+The Django administration interface is available at:
 
 ```text
 http://localhost:8000/admin/
 ```
 
-Videos can be uploaded through Django Admin. After a new video is saved, processing runs automatically in the background.
+The default local administrator is:
+
+```text
+Username: admin
+Password: adminpassword
+```
+
+These credentials are intended only for local development.
+
+### 11. Start the Supplied Frontend
+
+Open the separately supplied frontend folder in Visual Studio Code.
+
+Open its main `index.html` file.
+
+Start the file with the Live Server extension.
+
+The frontend address is normally:
+
+```text
+http://127.0.0.1:5500
+```
+
+or:
+
+```text
+http://127.0.0.1:5501
+```
+
+Check the port shown by Live Server.
+
+When the port differs from the values in `.env`, update:
+
+- `FRONTEND_ACTIVATION_URL`
+- `FRONTEND_PASSWORD_RESET_URL`
+- `CSRF_TRUSTED_ORIGINS`
+- `CORS_ALLOWED_ORIGINS`
+
+After editing `.env`, recreate the containers:
+
+```bash
+docker compose down
+docker compose up -d
+```
+
+These commands preserve the existing Docker volumes and database data.
+
+### 12. Test Registration and Account Activation
+
+Open the frontend registration page.
+
+Register with an email address that has not already been used.
+
+The backend creates the new account as inactive.
+
+The user cannot log in until the activation link has been opened.
+
+#### Using the Console Email Backend
+
+Run:
+
+```bash
+docker compose logs -f web
+```
+
+Find the activation email in the logs.
+
+Copy the complete activation URL and open it in the browser.
+
+No real email arrives when the console backend is active.
+
+#### Using the SMTP Email Backend
+
+Check the inbox of the address entered during registration.
+
+Also check:
+
+- Spam
+- Junk
+- Unwanted email
+
+Open the activation link from the received email.
+
+After successful activation, log in through the frontend.
+
+### 13. Test SMTP Independently
+
+This test is only required when the SMTP backend is active.
+
+Replace `receiver@example.com` with a real recipient address:
+
+```bash
+docker compose exec web python manage.py shell -c \
+"from django.conf import settings; from django.core.mail import send_mail; send_mail('Videoflix SMTP Test', 'Email delivery works.', settings.DEFAULT_FROM_EMAIL, ['receiver@example.com'], fail_silently=False)"
+```
+
+Expected command result:
+
+```text
+1
+```
+
+A result of `1` means Django handed one email to the SMTP server.
+
+Also check the recipient inbox and spam folder.
+
+### 14. Test Password Reset
+
+Open the password-reset page in the frontend.
+
+Enter the email address of an active account.
+
+Depending on the selected email backend:
+
+- Read the password-reset link from `docker compose logs -f web`, or
+- Open the real password-reset email in the recipient inbox
+
+Open the link.
+
+Enter and confirm a new password.
+
+Verify that login works with the new password.
+
+### 15. Upload and Process a Video
+
+Open Django Admin:
+
+```text
+http://localhost:8000/admin/
+```
+
+Log in with the configured administrator.
+
+Create a new video entry and upload a video file.
+
+After saving, the Django RQ worker automatically generates:
+
+- A thumbnail
+- A 480p HLS version
+- A 720p HLS version
+- A 1080p HLS version
+
+Follow the processing output with:
+
+```bash
+docker compose logs -f web
+```
+
+Video processing can temporarily use significant CPU resources.
+
+After processing finishes, test:
+
+- Video playback
+- Sound
+- Seeking
+- 480p
+- 720p
+- 1080p
 
 ---
+
+## Environment Profiles
+
+The `.env.template` file contains one active local-development configuration
+and commented examples for staging and production.
+
+Only one value for each environment variable may be active at the same time.
+
+### Local Development
+
+The active default configuration is intended for local development through
+Docker and an HTTP frontend started with Live Server.
+
+```env
+DEBUG=True
+ALLOWED_HOSTS=localhost,127.0.0.1
+AUTH_COOKIE_SECURE=False
+AUTH_COOKIE_SAMESITE=Lax
+SECURE_SSL_REDIRECT=False
+SESSION_COOKIE_SECURE=False
+CSRF_COOKIE_SECURE=False
+SECURE_HSTS_SECONDS=0
+```
+
+The console email backend is active by default:
+
+```env
+EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
+```
+
+This configuration does not send real emails. Activation and password-reset
+emails are displayed with:
+
+```bash
+docker compose logs -f web
+```
+
+Real SMTP delivery can also be enabled during local development by following
+the email instructions in the Quickstart section.
+
+### Staging
+
+The staging example is commented out in `.env.template`.
+
+To activate staging:
+
+1. Comment out the corresponding local-development values.
+2. Uncomment the staging values.
+3. Replace every example domain with the real staging domain.
+4. Replace the development secret key and passwords.
+5. Configure real SMTP credentials.
+6. Use HTTPS.
+
+Example:
+
+```env
+DEBUG=False
+ALLOWED_HOSTS=staging.example.com
+CSRF_TRUSTED_ORIGINS=https://staging.example.com
+CORS_ALLOWED_ORIGINS=https://staging.example.com
+AUTH_COOKIE_SECURE=True
+AUTH_COOKIE_SAMESITE=Lax
+SECURE_SSL_REDIRECT=True
+SESSION_COOKIE_SECURE=True
+CSRF_COOKIE_SECURE=True
+SECURE_HSTS_SECONDS=3600
+FRONTEND_ACTIVATION_URL=https://staging.example.com/pages/auth/activate.html
+FRONTEND_PASSWORD_RESET_URL=https://staging.example.com/pages/auth/confirm_password.html
+```
+
+### Production
+
+The production example is also commented out in `.env.template`.
+
+Before using production:
+
+1. Set `DEBUG=False`.
+2. Replace the example domain with the real production domain.
+3. Generate a long random `SECRET_KEY`.
+4. Replace the database credentials.
+5. Replace the administrator password.
+6. Activate the SMTP email backend.
+7. Enter real SMTP credentials.
+8. Enable secure cookies and HTTPS redirection.
+9. Never commit the production `.env` file.
+
+Example:
+
+```env
+DEBUG=False
+ALLOWED_HOSTS=videoflix.example.com
+CSRF_TRUSTED_ORIGINS=https://videoflix.example.com
+CORS_ALLOWED_ORIGINS=https://videoflix.example.com
+AUTH_COOKIE_SECURE=True
+AUTH_COOKIE_SAMESITE=Lax
+SECURE_SSL_REDIRECT=True
+SESSION_COOKIE_SECURE=True
+CSRF_COOKIE_SECURE=True
+SECURE_HSTS_SECONDS=3600
+FRONTEND_ACTIVATION_URL=https://videoflix.example.com/pages/auth/activate.html
+FRONTEND_PASSWORD_RESET_URL=https://videoflix.example.com/pages/auth/confirm_password.html
+```
+
+The real production values belong only in the private `.env` file.
+
+---
+
 
 ## Environment Variables
 
@@ -423,13 +1031,6 @@ The local `.env` file is based on `.env.template`.
 | `DEBUG` | Enable or disable debug mode |
 | `ALLOWED_HOSTS` | Hosts accepted by Django |
 | `CSRF_TRUSTED_ORIGINS` | Trusted frontend origins |
-| `CORS_ALLOWED_ORIGINS` | Frontend origins allowed to access the API |
-| `AUTH_COOKIE_SECURE` | Send authentication cookies only through HTTPS |
-| `AUTH_COOKIE_SAMESITE` | SameSite policy for authentication cookies |
-| `SECURE_SSL_REDIRECT` | Redirect HTTP requests to HTTPS |
-| `SESSION_COOKIE_SECURE` | Send Django session cookies only through HTTPS |
-| `CSRF_COOKIE_SECURE` | Send CSRF cookies only through HTTPS |
-| `SECURE_HSTS_SECONDS` | Duration of the HTTP Strict Transport Security policy |
 | `DB_NAME` | PostgreSQL database name |
 | `DB_USER` | PostgreSQL database user |
 | `DB_PASSWORD` | PostgreSQL database password |
@@ -489,10 +1090,9 @@ Stop the project:
 docker compose down
 ```
 
-Run an optional local code-quality check:
+Run local code-quality checks:
 
 ```bash
-python -m pip install ruff
 python -m ruff check .
 ```
 
